@@ -7,6 +7,7 @@ RUN go mod download
 
 COPY *.go ./
 
+RUN go mod tidy
 RUN go build -o main .
 
 EXPOSE 8080
