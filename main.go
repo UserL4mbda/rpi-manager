@@ -17,7 +17,8 @@ func main() {
 	})
 
 	r.POST("/shutdown", func(c *gin.Context) {
-		cmd := exec.Command("shutdown", "-h", "now")
+		//cmd := exec.Command("shutdown", "-h", "now")
+		cmd := exec.Command("systemctl", "halt")
 		err := cmd.Run()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
