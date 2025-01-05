@@ -1,13 +1,40 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"net/http"
 	"os/exec"
 
 	"github.com/gin-gonic/gin"
 )
 
+
 func main() {
+	fmt.Println("Creation du Hotspot")
+	cmd := exec.Command("/usr/bin/nmcli", "device", "wifi", "hotspot", "ifname", "wlan0","con-name","Hotspot", "ssid", "Entreprise", "password", "NCC-1701")
+
+	// Buffers pour stdout et stderr
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// Redirection des flux
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		// Affichage de l'erreur, du flux d'erreur et du flux standard
+		fmt.Println("Runtime error: ", err)
+		fmt.Println("Sortie d'erreur:", stderr.String())
+		fmt.Println("Sortie standard:", stdout.String())
+		return
+	}else{
+		// Affichage des sorties
+		fmt.Println(stdout.String())
+		fmt.Println(stderr.String())
+	}
+
 	r := gin.Default()
 
 	r.GET("/", func(c *gin.Context) {
@@ -17,7 +44,6 @@ func main() {
 	})
 
 	r.POST("/shutdown", func(c *gin.Context) {
-		//cmd := exec.Command("shutdown", "-h", "now")
 		cmd := exec.Command("systemctl", "halt")
 		err := cmd.Run()
 		if err != nil {
@@ -25,6 +51,17 @@ func main() {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "Shutdown initiated"})
+	})
+
+	r.POST("/delhotspot", func(c *gin.Context) {
+		cmd := exec.Command("/usr/bin/nmcli", "connection","delete","id","Hotspot")
+		output, err := cmd.Output()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Suppression du Hotspot"})
+		fmt.Println(output)
 	})
 
 	r.GET("/network", func(c *gin.Context) {
