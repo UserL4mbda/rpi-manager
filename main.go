@@ -7,10 +7,45 @@ import (
 	"os/exec"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jochenvg/go-udev"
 )
 
+func checkUdev() {
+	u := udev.Udev{}
+	monitor := u.NewMonitorFromNetlink("udev")
 
-func main() {
+	// Ajout de filtre pour reseau usb
+	err := monitor.FilterAddMatchSubsystemDevtype("net", "usb_interface")
+	if err != nil {
+		log.Fatalf("Error adding filter: %v", err)
+	}
+
+	// Ouvrir le monitor pour ecouter les evenement
+	monitorFd, err := monitor.DeviceChan(os.Kill)
+	if err != nil {
+		log.Fatalf("Error starting monitor: %v", err)
+	}
+
+	fmt.Println("Monitoring USB network interfaces...")
+
+	for device ;= range monitorFd {
+		if device == nil {
+			continue
+		}
+		action := device.Action()
+		devPath := device.Devpath()
+
+		if action == "add" {
+			fmt.Printf("USB network interface added: %s\n", devpath)
+		} else if action == "remove" {
+			fmt.Printf("USB network interface removed: %s\n", devpath)
+		} else {
+			fmt.Printf("Unknow action: %s on device: %s\n", action, devpath)
+		}
+	}
+}
+
+func createHotspot() {
 	fmt.Println("Creation du Hotspot")
 	cmd := exec.Command("/usr/bin/nmcli", "device", "wifi", "hotspot", "ifname", "wlan0","con-name","Hotspot", "ssid", "Entreprise", "password", "NCC-1701")
 
@@ -34,6 +69,34 @@ func main() {
 		fmt.Println(stdout.String())
 		fmt.Println(stderr.String())
 	}
+}
+
+func main() {
+//	fmt.Println("Creation du Hotspot")
+//	cmd := exec.Command("/usr/bin/nmcli", "device", "wifi", "hotspot", "ifname", "wlan0","con-name","Hotspot", "ssid", "Entreprise", "password", "NCC-1701")
+//
+//	// Buffers pour stdout et stderr
+//	var stdout bytes.Buffer
+//	var stderr bytes.Buffer
+//
+//	// Redirection des flux
+//	cmd.Stdout = &stdout
+//	cmd.Stderr = &stderr
+//
+//	err := cmd.Run()
+//	if err != nil {
+//		// Affichage de l'erreur, du flux d'erreur et du flux standard
+//		fmt.Println("Runtime error: ", err)
+//		fmt.Println("Sortie d'erreur:", stderr.String())
+//		fmt.Println("Sortie standard:", stdout.String())
+//		return
+//	}else{
+//		// Affichage des sorties
+//		fmt.Println(stdout.String())
+//		fmt.Println(stderr.String())
+//	}
+
+	createHotspot()
 
 	r := gin.Default()
 
