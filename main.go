@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"os/signal"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jochenvg/go-udev"
@@ -17,30 +20,55 @@ func checkUdev() {
 	// Ajout de filtre pour reseau usb
 	err := monitor.FilterAddMatchSubsystemDevtype("net", "usb_interface")
 	if err != nil {
-		log.Fatalf("Error adding filter: %v", err)
+		//log.Fatalf("Error adding filter: %v", err)
+		fmt.Printf("Error adding filter: %v\n", err)
 	}
 
-	// Ouvrir le monitor pour ecouter les evenement
-	monitorFd, err := monitor.DeviceChan(os.Kill)
+	// Creer un context avec annulation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Ouvrir le monitor et recuperer les canaux
+	udevChan, errChan, err := monitor.DeviceChan(ctx)
 	if err != nil {
-		log.Fatalf("Error starting monitor: %v", err)
+		fmt.Printf("Error starting monitor: %v", err)
 	}
+
+	// Gestion des interruptions (CTRL+C)
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt)
+	go func() {
+		<-signalChan
+		fmt.Println("\nStopping monitor...")
+		cancel() // Annule le context pour Arret propre du monitor
+		os.Exit(0)
+	}()
 
 	fmt.Println("Monitoring USB network interfaces...")
 
-	for device ;= range monitorFd {
-		if device == nil {
-			continue
-		}
-		action := device.Action()
-		devPath := device.Devpath()
+	for {
+		select {
+		case device := <-udevChan:
+			if device == nil {
+				continue
+			}
+			action := device.Action()
+			devPath := device.Devpath()
 
-		if action == "add" {
-			fmt.Printf("USB network interface added: %s\n", devpath)
-		} else if action == "remove" {
-			fmt.Printf("USB network interface removed: %s\n", devpath)
-		} else {
-			fmt.Printf("Unknow action: %s on device: %s\n", action, devpath)
+			if action == "add" {
+				fmt.Printf("USB network interface added: %s\n", devPath)
+			} else if action == "remove" {
+				fmt.Printf("USB network interface removed: %s\n", devPath)
+			} else {
+				fmt.Printf("Unknow action: %s on device: %s\n", action, devPath)
+			}
+		case err := <-errChan:
+			if err != nil {
+				fmt.Printf("Error from monitor: %v", err)
+			}
+		case <-ctx.Done():
+			fmt.Println("Context canceled, stopping monitor.")
+			return
 		}
 	}
 }
