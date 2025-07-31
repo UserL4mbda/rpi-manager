@@ -1,9 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,6 +44,63 @@ type Route struct {
 	Scope       string `json:"scope,omitempty"`
 	Metric      string `json:"metric,omitempty"`
 }
+
+func isInDocker() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
+}
+
+// Fonction pour detecter si on utilise le reseau host
+func isHostNetwork() bool {
+	// Verifions si on peut voir les interfaces du host
+	cmd := exec.Command("ip", "addr", "show")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	// Si on trouve des interfaces, on est probablement en host network (comme wlan0, eth1, etc.)
+	outputStr := string(output)
+	hostIndicators := []string{"wlan0", "eth1", "vlan", "br0"}
+
+	count := 0
+	for _, indicator := range hostIndicators {
+		if bytes.Contains([]byte(outputStr), []byte(indicator)) {
+			count++
+		}
+	}
+
+	return count > 0
+}
+
+// Fonction pour creer une commande avec geston des namespaces si besoin
+func createNetworkCommande(ctx context.Context, command string, args ...string) *exec.Cmd {
+	if !isInDocker() {
+		// Execution directe si on est pas dans un container Docker
+		return exec.CommandContext(ctx, command, args...)
+	}
+
+	if isHostNetwork() {
+		// Si on est en host network, on peut executer directement la commande
+		return exec.CommandContext(ctx, command, args...)
+	}
+
+	// Docker sans --network host : on utilise nsenter pour entrer dans le namespace du container
+	nsenterArgs := []string{"-t", "1", "-n", command}
+	nsenterArgs = append(nsenterArgs, args...)
+	return exec.CommandContext(ctx, "nsenter", nsenterArgs...)
+}
+
+// Structure pour stocker les informations d'une interface réseau
+type CaptureSession struct {
+	ID      string `json:"id"`
+	Cmd     *exec.Cmd
+	Cancel  context.CancelFunc
+	Running bool
+	Output  []byte
+}
+
+var captureSessions = make(map[string]*CaptureSession)
 
 // Fonction pour parser la sortie de "ip -j addr show"
 func parseInterfaces() ([]NetworkInterface, error) {
@@ -286,7 +343,7 @@ func networkHandler(c *gin.Context) {
 		networkInfo.Interfaces, err = parseInterfacesLegacy()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Impossible de récupérer les informations des interfaces réseau",
+				"error":   "Impossible de récupérer les informations des interfaces réseau",
 				"details": err.Error(),
 			})
 			return
@@ -366,7 +423,7 @@ func checkUdev() {
 
 func createHotspot() {
 	fmt.Println("Creation du Hotspot")
-	cmd := exec.Command("/usr/bin/nmcli", "device", "wifi", "hotspot", "ifname", "wlan0","con-name","Hotspot", "ssid", "Entreprise", "password", "NCC-1701")
+	cmd := exec.Command("/usr/bin/nmcli", "device", "wifi", "hotspot", "ifname", "wlan0", "con-name", "Hotspot", "ssid", "Entreprise", "password", "NCC-1701")
 
 	// Buffers pour stdout et stderr
 	var stdout bytes.Buffer
@@ -383,7 +440,7 @@ func createHotspot() {
 		fmt.Println("Sortie d'erreur:", stderr.String())
 		fmt.Println("Sortie standard:", stdout.String())
 		return
-	}else{
+	} else {
 		// Affichage des sorties
 		fmt.Println(stdout.String())
 		fmt.Println(stderr.String())
@@ -413,7 +470,7 @@ func main() {
 	})
 
 	r.POST("/delhotspot", func(c *gin.Context) {
-		cmd := exec.Command("/usr/bin/nmcli", "connection","delete","id","Hotspot")
+		cmd := exec.Command("/usr/bin/nmcli", "connection", "delete", "id", "Hotspot")
 		output, err := cmd.Output()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
